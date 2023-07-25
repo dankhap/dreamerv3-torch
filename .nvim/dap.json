@@ -1,0 +1,21 @@
+{
+	"configurations": [
+		{
+			"name": "test dreamerv3",
+			"type": "python",
+			"request": "launch",
+			"justMyCode": false,
+			"python": "/opt/conda/envs/urlb2/bin/python",
+			"stopOnEntry": false,
+			"debugOptions": [],
+			"program": "${file}",
+			"args": [
+		                "--configs", "dmc_proprio",
+		                "--task", "dmc_walker_walk",
+		                "--logdir", "./logdir/dmc_walker_walk"
+				],
+			"cwd": "${workspaceFolder}"
+		}
+	]
+}
+
