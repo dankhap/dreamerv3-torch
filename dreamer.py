@@ -1,12 +1,10 @@
 import argparse
-import collections
 import functools
 import os
 import pathlib
 import sys
-import warnings
 
-os.environ["MUJOCO_GL"] = "egl"
+os.environ["MUJOCO_GL"] = "osmesa"
 
 import numpy as np
 import ruamel.yaml as yaml
@@ -17,6 +15,7 @@ import exploration as expl
 import models
 import tools
 import envs.wrappers as wrappers
+from parallel import Parallel, Damy
 
 import torch
 from torch import nn
@@ -38,7 +37,8 @@ class Dreamer(nn.Module):
         self._should_reset = tools.Every(config.reset_every)
         self._should_expl = tools.Until(int(config.expl_until / config.action_repeat))
         self._metrics = {}
-        self._step = count_steps(config.traindir)
+        # this is update step
+        self._step = logger.step // config.action_repeat
         self._update_count = 0
         # Schedules.
         config.actor_entropy = lambda x=config.actor_entropy: tools.schedule(
@@ -67,7 +67,7 @@ class Dreamer(nn.Module):
             plan2explore=lambda: expl.Plan2Explore(config, self._wm, reward),
         )[config.expl_behavior]().to(self._config.device)
 
-    def __call__(self, obs, reset, state=None, reward=None, training=True):
+    def __call__(self, obs, reset, state=None, training=True):
         step = self._step
         if self._should_reset(step):
             state = None
@@ -151,7 +151,6 @@ class Dreamer(nn.Module):
             return tools.OneHotDist(probs=probs).sample()
         else:
             return torch.clip(torchd.normal.Normal(action, amount).sample(), -1, 1)
-        raise NotImplementedError(self._config.action_noise)
 
     def _train(self, data):
         metrics = {}
@@ -182,12 +181,14 @@ def make_dataset(episodes, config):
     return dataset
 
 
-def make_env(config, logger, mode, train_eps, eval_eps):
+def make_env(config, mode):
     suite, task = config.task.split("_", 1)
     if suite == "dmc":
         import envs.dmc as dmc
 
-        env = dmc.DeepMindControl(task, config.action_repeat, config.size)
+        env = dmc.DeepMindControl(
+            task, config.action_repeat, config.size, seed=config.seed
+        )
         env = wrappers.NormalizeActions(env)
     elif suite == "atari":
         import envs.atari as atari
@@ -202,106 +203,48 @@ def make_env(config, logger, mode, train_eps, eval_eps):
             sticky=config.stickey,
             actions=config.actions,
             resize=config.resize,
+            seed=config.seed,
         )
         env = wrappers.OneHotAction(env)
     elif suite == "dmlab":
         import envs.dmlab as dmlab
 
         env = dmlab.DeepMindLabyrinth(
-            task, mode if "train" in mode else "test", config.action_repeat
+            task,
+            mode if "train" in mode else "test",
+            config.action_repeat,
+            seed=config.seed,
         )
         env = wrappers.OneHotAction(env)
-    elif suite == "MemoryMaze":
+    elif suite == "memorymaze":
         from envs.memorymaze import MemoryMaze
 
-        env = MemoryMaze(task)
+        env = MemoryMaze(task, seed=config.seed)
         env = wrappers.OneHotAction(env)
     elif suite == "crafter":
         import envs.crafter as crafter
 
-        env = crafter.Crafter(task, config.size)
+        env = crafter.Crafter(task, config.size, seed=config.seed)
+        env = wrappers.OneHotAction(env)
+    elif suite == "minecraft":
+        import envs.minecraft as minecraft
+
+        env = minecraft.make_env(task, size=config.size, break_speed=config.break_speed)
         env = wrappers.OneHotAction(env)
     else:
         raise NotImplementedError(suite)
     env = wrappers.TimeLimit(env, config.time_limit)
     env = wrappers.SelectAction(env, key="action")
-    if (mode == "train") or (mode == "eval"):
-        callbacks = [
-            functools.partial(
-                ProcessEpisodeWrap.process_episode,
-                config,
-                logger,
-                mode,
-                train_eps,
-                eval_eps,
-            )
-        ]
-        env = wrappers.CollectDataset(env, mode, train_eps, callbacks=callbacks)
-    env = wrappers.RewardObs(env)
+    env = wrappers.UUID(env)
+    if suite == "minecraft":
+        env = wrappers.RewardObs(env)
     return env
 
 
-class ProcessEpisodeWrap:
-    eval_scores = []
-    eval_lengths = []
-    last_step_at_eval = -1
-    eval_done = False
-
-    @classmethod
-    def process_episode(cls, config, logger, mode, train_eps, eval_eps, episode):
-        directory = dict(train=config.traindir, eval=config.evaldir)[mode]
-        cache = dict(train=train_eps, eval=eval_eps)[mode]
-        # this saved episodes is given as train_eps or eval_eps from next call
-        filename = tools.save_episodes(directory, [episode])[0]
-        length = len(episode["reward"]) - 1
-        score = float(episode["reward"].astype(np.float64).sum())
-        video = episode["image"]
-        # add new episode
-        cache[str(filename)] = episode
-        if mode == "train":
-            step_in_dataset = 0
-            for key, ep in reversed(sorted(cache.items(), key=lambda x: x[0])):
-                if (
-                    not config.dataset_size
-                    or step_in_dataset + (len(ep["reward"]) - 1) <= config.dataset_size
-                ):
-                    step_in_dataset += len(ep["reward"]) - 1
-                else:
-                    del cache[key]
-            logger.scalar("dataset_size", step_in_dataset)
-        elif mode == "eval":
-            # keep only last item for saving memory
-            while len(cache) > 1:
-                # FIFO
-                cache.popitem()
-            # start counting scores for evaluation
-            if cls.last_step_at_eval != logger.step:
-                cls.eval_scores = []
-                cls.eval_lengths = []
-                cls.eval_done = False
-                cls.last_step_at_eval = logger.step
-
-            cls.eval_scores.append(score)
-            cls.eval_lengths.append(length)
-            # ignore if number of eval episodes exceeds eval_episode_num
-            if len(cls.eval_scores) < config.eval_episode_num or cls.eval_done:
-                return
-            score = sum(cls.eval_scores) / len(cls.eval_scores)
-            length = sum(cls.eval_lengths) / len(cls.eval_lengths)
-            episode_num = len(cls.eval_scores)
-            logger.video(f"{mode}_policy", video[None])
-            cls.eval_done = True
-
-        print(f"{mode.title()} episode has {length} steps and return {score:.1f}.")
-        logger.scalar(f"{mode}_return", score)
-        logger.scalar(f"{mode}_length", length)
-        logger.scalar(
-            f"{mode}_episodes", len(cache) if mode == "train" else episode_num
-        )
-        logger.write(step=logger.step)
-
-
 def main(config):
+    tools.set_seed_everywhere(config.seed)
+    if config.deterministic_run:
+        tools.enable_deterministic_run()
     logdir = pathlib.Path(config.logdir).expanduser()
     config.traindir = config.traindir or logdir / "train_eps"
     config.evaldir = config.evaldir or logdir / "eval_eps"
@@ -315,6 +258,7 @@ def main(config):
     config.traindir.mkdir(parents=True, exist_ok=True)
     config.evaldir.mkdir(parents=True, exist_ok=True)
     step = count_steps(config.traindir)
+    # step in logger is environmental step
     logger = tools.Logger(logdir, config.action_repeat * step)
 
     print("Create envs.")
@@ -328,12 +272,19 @@ def main(config):
     else:
         directory = config.evaldir
     eval_eps = tools.load_episodes(directory, limit=1)
-    make = lambda mode: make_env(config, logger, mode, train_eps, eval_eps)
+    make = lambda mode: make_env(config, mode)
     train_envs = [make("train") for _ in range(config.envs)]
     eval_envs = [make("eval") for _ in range(config.envs)]
+    if config.parallel:
+        train_envs = [Parallel(env, "process") for env in train_envs]
+        eval_envs = [Parallel(env, "process") for env in eval_envs]
+    else:
+        train_envs = [Damy(env) for env in train_envs]
+        eval_envs = [Damy(env) for env in eval_envs]
     acts = train_envs[0].action_space
     config.num_actions = acts.n if hasattr(acts, "n") else acts.shape[0]
 
+    state = None
     if not config.offline_traindir:
         prefill = max(0, config.prefill - count_steps(config.traindir))
         print(f"Prefill dataset ({prefill} steps).")
@@ -350,13 +301,22 @@ def main(config):
                 1,
             )
 
-        def random_agent(o, d, s, r):
+        def random_agent(o, d, s):
             action = random_actor.sample()
             logprob = random_actor.log_prob(action)
             return {"action": action, "logprob": logprob}, None
 
-        tools.simulate(random_agent, train_envs, prefill)
-        logger.step = config.action_repeat * count_steps(config.traindir)
+        state = tools.simulate(
+            random_agent,
+            train_envs,
+            train_eps,
+            config.traindir,
+            logger,
+            limit=config.dataset_size,
+            steps=prefill,
+        )
+        logger.step += prefill * config.action_repeat
+        print(f"Logger: ({logger.step} steps).")
 
     print("Simulate agent.")
     train_dataset = make_dataset(train_eps, config)
@@ -373,17 +333,35 @@ def main(config):
         agent.load_state_dict(torch.load(logdir / "latest_model.pt"))
         agent._should_pretrain._once = False
 
-    state = None
-    while agent._step < config.steps:
+    # make sure eval will be executed once after config.steps
+    while agent._step < config.steps + config.eval_every:
         logger.write()
-        print("Start evaluation.")
-        eval_policy = functools.partial(agent, training=False)
-        tools.simulate(eval_policy, eval_envs, episodes=config.eval_episode_num)
-        if config.video_pred_log:
-            video_pred = agent._wm.video_pred(next(eval_dataset))
-            logger.video("eval_openl", to_np(video_pred))
+        if config.eval_episode_num > 0:
+            print("Start evaluation.")
+            eval_policy = functools.partial(agent, training=False)
+            tools.simulate(
+                eval_policy,
+                eval_envs,
+                eval_eps,
+                config.evaldir,
+                logger,
+                is_eval=True,
+                episodes=config.eval_episode_num,
+            )
+            if config.video_pred_log:
+                video_pred = agent._wm.video_pred(next(eval_dataset))
+                logger.video("eval_openl", to_np(video_pred))
         print("Start training.")
-        state = tools.simulate(agent, train_envs, config.eval_every, state=state)
+        state = tools.simulate(
+            agent,
+            train_envs,
+            train_eps,
+            config.traindir,
+            logger,
+            limit=config.dataset_size,
+            steps=config.eval_every,
+            state=state,
+        )
         torch.save(agent.state_dict(), logdir / "latest_model.pt")
     for env in train_envs + eval_envs:
         try:
