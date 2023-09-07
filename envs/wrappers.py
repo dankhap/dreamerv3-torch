@@ -1,4 +1,5 @@
 import gymnasium as gym
+import datetime
 import numpy as np
 import uuid
 
@@ -20,7 +21,7 @@ class TimeLimit(gym.Wrapper):
             self._step = None
         return obs, reward, done, info
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         self._step = 0
         return self.env.reset()
 
@@ -61,7 +62,7 @@ class OneHotAction(gym.Wrapper):
             raise ValueError(f"Invalid one-hot action:\n{action}")
         return self.env.step(index)
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         return self.env.reset()
 
     def _sample_action(self):
@@ -88,7 +89,7 @@ class RewardObs(gym.Wrapper):
             obs["obs_reward"] = np.array([reward], dtype=np.float32)
         return obs, reward, done, info
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         obs = self.env.reset()
         if "obs_reward" not in obs:
             obs["obs_reward"] = np.array([0.0], dtype=np.float32)
@@ -110,7 +111,8 @@ class UUID(gym.Wrapper):
         timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
         self.id = f"{timestamp}-{str(uuid.uuid4().hex)}"
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
         self.id = f"{timestamp}-{str(uuid.uuid4().hex)}"
         return self.env.reset()
+
