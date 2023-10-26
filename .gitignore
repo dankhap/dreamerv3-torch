@@ -1,5 +1,4 @@
 #
-*.sh
 logdir*
 vis_*
 
