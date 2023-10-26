@@ -3,14 +3,20 @@ import numpy as np
 
 
 class DeepMindControl:
-    def __init__(self, name, action_repeat=1, size=(64, 64), camera=None):
+    metadata = {}
+
+    def __init__(self, name, action_repeat=1, size=(64, 64), camera=None, seed=0):
         domain, task = name.split("_", 1)
         if domain == "cup":  # Only domain with multiple words.
             domain = "ball_in_cup"
         if isinstance(domain, str):
             from dm_control import suite
 
-            self._env = suite.load(domain, task)
+            self._env = suite.load(
+                domain,
+                task,
+                task_kwargs={"random": seed},
+            )
         else:
             assert task is None
             self._env = domain()
@@ -19,6 +25,7 @@ class DeepMindControl:
         if camera is None:
             camera = dict(quadruped=2).get(domain, 0)
         self._camera = camera
+        self.reward_range = [-np.inf, np.inf]
 
     @property
     def observation_space(self):
@@ -55,7 +62,7 @@ class DeepMindControl:
         info = {"discount": np.array(time_step.discount, np.float32)}
         return obs, reward, done, info
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
         time_step = self._env.reset()
         obs = dict(time_step.observation)
         obs = {key: [val] if len(val.shape) == 0 else val for key, val in obs.items()}

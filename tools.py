@@ -1,12 +1,12 @@
 import datetime
 import collections
 import io
+import os
 import json
 import pathlib
-import pickle
 import re
 import time
-import uuid
+import random
 
 import numpy as np
 
@@ -14,7 +14,6 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torch import distributions as torchd
-from torch.utils.data import Dataset
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -85,7 +84,10 @@ class Logger:
         with (self._logdir / "metrics.jsonl").open("a") as f:
             f.write(json.dumps({"step": step, **dict(scalars)}) + "\n")
         for name, value in scalars:
-            self._writer.add_scalar("scalars/" + name, value, step)
+            if "/" not in name:
+                self._writer.add_scalar("scalars/" + name, value, step)
+            else:
+                self._writer.add_scalar(name, value, step)
         for name, value in self._images.items():
             self._writer.add_image(name, value, step)
         for name, value in self._videos.items():
@@ -123,8 +125,19 @@ class Logger:
         self._writer.add_video(name, value, step, 16)
 
 
-def simulate(agent, envs, steps=0, episodes=0, state=None):
-    # Initialize or unpack simulation state.
+def simulate(
+    agent,
+    envs,
+    cache,
+    directory,
+    logger,
+    is_eval=False,
+    limit=None,
+    steps=0,
+    episodes=0,
+    state=None,
+):
+    # initialize or unpack simulation state
     if state is None:
         step, episode = 0, 0
         done = np.ones(len(envs), bool)
@@ -135,16 +148,24 @@ def simulate(agent, envs, steps=0, episodes=0, state=None):
     else:
         step, episode, done, length, obs, agent_state, reward = state
     while (steps and step < steps) or (episodes and episode < episodes):
-        # Reset envs if necessary.
+        # reset envs if necessary
         if done.any():
             indices = [index for index, d in enumerate(done) if d]
             results = [envs[i].reset() for i in indices]
+            results = [r() for r in results]
             for index, result in zip(indices, results):
+                t = result.copy()
+                t = {k: convert(v) for k, v in t.items()}
+                # action will be added to transition in add_to_cache
+                t["reward"] = 0.0
+                t["discount"] = 1.0
+                # initial state should be added to cache
+                add_to_cache(cache, envs[index].id, t)
+                # replace obs with done by initial state
                 obs[index] = result
-            reward = [reward[i] * (1 - done[i]) for i in range(len(envs))]
-        # Step agents.
+        # step agents
         obs = {k: np.stack([o[k] for o in obs]) for k in obs[0]}
-        action, agent_state = agent(obs, done, agent_state, reward)
+        action, agent_state = agent(obs, done, agent_state)
         if isinstance(action, dict):
             action = [
                 {k: np.array(action[k][i].detach().cpu()) for k in action}
@@ -153,36 +174,136 @@ def simulate(agent, envs, steps=0, episodes=0, state=None):
         else:
             action = np.array(action)
         assert len(action) == len(envs)
-        # Step envs.
+        # step envs
         results = [e.step(a) for e, a in zip(envs, action)]
+        results = [r() for r in results]
         obs, reward, done = zip(*[p[:3] for p in results])
         obs = list(obs)
         reward = list(reward)
         done = np.stack(done)
         episode += int(done.sum())
         length += 1
-        step += (done * length).sum()
+        step += len(envs)
         length *= 1 - done
+        # add to cache
+        for a, result, env in zip(action, results, envs):
+            o, r, d, info = result
+            o = {k: convert(v) for k, v in o.items()}
+            transition = o.copy()
+            if isinstance(a, dict):
+                transition.update(a)
+            else:
+                transition["action"] = a
+            transition["reward"] = r
+            transition["discount"] = info.get("discount", np.array(1 - float(d)))
+            add_to_cache(cache, env.id, transition)
 
+        if done.any():
+            indices = [index for index, d in enumerate(done) if d]
+            # logging for done episode
+            for i in indices:
+                save_episodes(directory, {envs[i].id: cache[envs[i].id]})
+                length = len(cache[envs[i].id]["reward"]) - 1
+                score = float(np.array(cache[envs[i].id]["reward"]).sum())
+                video = cache[envs[i].id]["image"]
+                # record logs given from environments
+                for key in list(cache[envs[i].id].keys()):
+                    if "log_" in key:
+                        logger.scalar(
+                            key, float(np.array(cache[envs[i].id][key]).sum())
+                        )
+                        # log items won't be used later
+                        cache[envs[i].id].pop(key)
+
+                if not is_eval:
+                    step_in_dataset = erase_over_episodes(cache, limit)
+                    logger.scalar(f"dataset_size", step_in_dataset)
+                    logger.scalar(f"train_return", score)
+                    logger.scalar(f"train_length", length)
+                    logger.scalar(f"train_episodes", len(cache))
+                    logger.write(step=logger.step)
+                else:
+                    if not "eval_lengths" in locals():
+                        eval_lengths = []
+                        eval_scores = []
+                        eval_done = False
+                    # start counting scores for evaluation
+                    eval_scores.append(score)
+                    eval_lengths.append(length)
+
+                    score = sum(eval_scores) / len(eval_scores)
+                    length = sum(eval_lengths) / len(eval_lengths)
+                    logger.video(f"eval_policy", np.array(video)[None])
+
+                    if len(eval_scores) >= episodes and not eval_done:
+                        logger.scalar(f"eval_return", score)
+                        logger.scalar(f"eval_length", length)
+                        logger.scalar(f"eval_episodes", len(eval_scores))
+                        logger.write(step=logger.step)
+                        eval_done = True
+    if is_eval:
+        # keep only last item for saving memory. this cache is used for video_pred later
+        while len(cache) > 1:
+            # FIFO
+            cache.popitem(last=False)
     return (step - steps, episode - episodes, done, length, obs, agent_state, reward)
+
+
+def add_to_cache(cache, id, transition):
+    if id not in cache:
+        cache[id] = dict()
+        for key, val in transition.items():
+            cache[id][key] = [convert(val)]
+    else:
+        for key, val in transition.items():
+            if key not in cache[id]:
+                # fill missing data(action, etc.) at second time
+                cache[id][key] = [convert(0 * val)]
+                cache[id][key].append(convert(val))
+            else:
+                cache[id][key].append(convert(val))
+
+
+def erase_over_episodes(cache, dataset_size):
+    step_in_dataset = 0
+    for key, ep in reversed(sorted(cache.items(), key=lambda x: x[0])):
+        if (
+            not dataset_size
+            or step_in_dataset + (len(ep["reward"]) - 1) <= dataset_size
+        ):
+            step_in_dataset += len(ep["reward"]) - 1
+        else:
+            del cache[key]
+    return step_in_dataset
+
+
+def convert(value, precision=32):
+    value = np.array(value)
+    if np.issubdtype(value.dtype, np.floating):
+        dtype = {16: np.float16, 32: np.float32, 64: np.float64}[precision]
+    elif np.issubdtype(value.dtype, np.signedinteger):
+        dtype = {16: np.int16, 32: np.int32, 64: np.int64}[precision]
+    elif np.issubdtype(value.dtype, np.uint8):
+        dtype = np.uint8
+    elif np.issubdtype(value.dtype, bool):
+        dtype = bool
+    else:
+        raise NotImplementedError(value.dtype)
+    return value.astype(dtype)
 
 
 def save_episodes(directory, episodes):
     directory = pathlib.Path(directory).expanduser()
     directory.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
-    filenames = []
-    for episode in episodes:
-        identifier = str(uuid.uuid4().hex)
+    for filename, episode in episodes.items():
         length = len(episode["reward"])
-        filename = directory / f"{timestamp}-{identifier}-{length}.npz"
+        filename = directory / f"{filename}-{length}.npz"
         with io.BytesIO() as f1:
             np.savez_compressed(f1, **episode)
             f1.seek(0)
             with filename.open("wb") as f2:
                 f2.write(f1.read())
-        filenames.append(filename)
-    return filenames
+    return True
 
 
 def from_generator(generator, batch_size):
@@ -200,7 +321,7 @@ def from_generator(generator, batch_size):
 
 
 def sample_episodes(episodes, length, seed=0):
-    random = np.random.RandomState(seed)
+    np_random = np.random.RandomState(seed)
     while True:
         size = 0
         ret = None
@@ -209,16 +330,20 @@ def sample_episodes(episodes, length, seed=0):
         )
         p = p / np.sum(p)
         while size < length:
-            episode = random.choice(list(episodes.values()), p=p)
+            episode = np_random.choice(list(episodes.values()), p=p)
             total = len(next(iter(episode.values())))
             # make sure at least one transition included
             if total < 2:
                 continue
             if not ret:
-                index = int(random.randint(0, total - 1))
+                index = int(np_random.randint(0, total - 1))
                 ret = {
-                    k: v[index : min(index + length, total)] for k, v in episode.items()
+                    k: v[index : min(index + length, total)]
+                    for k, v in episode.items()
+                    if "log_" not in k
                 }
+                if "is_first" in ret:
+                    ret["is_first"][0] = True
             else:
                 # 'is_first' comes after 'is_last'
                 index = 0
@@ -228,7 +353,10 @@ def sample_episodes(episodes, length, seed=0):
                         ret[k], v[index : min(index + possible, total)], axis=0
                     )
                     for k, v in episode.items()
+                    if "log_" not in k
                 }
+                if "is_first" in ret:
+                    ret["is_first"][size] = True
             size = len(next(iter(ret.values())))
         yield ret
 
@@ -246,7 +374,8 @@ def load_episodes(directory, limit=None, reverse=True):
             except Exception as e:
                 print(f"Could not load episode: {e}")
                 continue
-            episodes[str(filename)] = episode
+            # extract only filename without extension
+            episodes[str(os.path.splitext(os.path.basename(filename))[0])] = episode
             total += len(episode["reward"]) - 1
             if limit and total >= limit:
                 break
@@ -854,3 +983,17 @@ def tensorstats(tensor, prefix=None):
     if prefix:
         metrics = {f"{prefix}_{k}": v for k, v in metrics.items()}
     return metrics
+
+
+def set_seed_everywhere(seed):
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+
+def enable_deterministic_run():
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True)

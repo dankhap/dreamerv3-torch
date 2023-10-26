@@ -3,12 +3,15 @@ import numpy as np
 
 
 class Crafter:
-    def __init__(self, task, size=(64, 64), seed=None):
+    metadata = {}
+
+    def __init__(self, task, size=(64, 64), seed=0):
         assert task in ("reward", "noreward")
         import crafter
 
         self._env = crafter.Env(size=size, reward=(task == "reward"), seed=seed)
         self._achievements = crafter.constants.achievements.copy()
+        self.reward_range = [-np.inf, np.inf]
 
     @property
     def observation_space(self):
@@ -16,7 +19,6 @@ class Crafter:
             "image": gym.spaces.Box(
                 0, 255, self._env.observation_space.shape, dtype=np.uint8
             ),
-            "reward": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.float32),
             "is_first": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.uint8),
             "is_last": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.uint8),
             "is_terminal": gym.spaces.Box(-np.inf, np.inf, (1,), dtype=np.uint8),
@@ -47,7 +49,6 @@ class Crafter:
         }
         obs = {
             "image": image,
-            "reward": reward,
             "is_first": False,
             "is_last": done,
             "is_terminal": info["discount"] == 0,

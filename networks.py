@@ -415,7 +415,7 @@ class MultiDecoder(nn.Module):
         vector_dist,
     ):
         super(MultiDecoder, self).__init__()
-        excluded = ("is_first", "is_last", "is_terminal", "reward")
+        excluded = ("is_first", "is_last", "is_terminal")
         shapes = {k: v for k, v in shapes.items() if k not in excluded}
         self.cnn_shapes = {
             k: v for k, v in shapes.items() if len(v) == 3 and re.match(cnn_keys, k)
@@ -804,7 +804,7 @@ class ActionHead(nn.Module):
             dist = torchd.normal.Normal(torch.tanh(mean), std)
             dist = tools.ContDist(torchd.independent.Independent(dist, 1))
         elif self._dist == "normal_1":
-            x = self._dist_layer(x)
+            mean = self._dist_layer(x)
             dist = torchd.normal.Normal(mean, 1)
             dist = tools.ContDist(torchd.independent.Independent(dist, 1))
         elif self._dist == "trunc_normal":
