@@ -5,6 +5,5 @@ echo "all arguments: $@"
 eval "$(conda shell.bash hook)"
 conda activate urlb2
 
-if [ $1 = "fine" ]; then
-	python dreamer.py ${@:2}
+python dreamer.py ${@:2}
 
