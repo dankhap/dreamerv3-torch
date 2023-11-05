@@ -154,6 +154,7 @@ class Dreamer(nn.Module):
 
     def _train(self, data):
         metrics = {}
+        # TODO: remove reward head during exploration, for WM
         post, context, mets = self._wm._train(data)
         metrics.update(mets)
         start = post
@@ -162,14 +163,26 @@ class Dreamer(nn.Module):
         ).mode()
         metrics.update(self._task_behavior._train(start, reward)[-1])
         if self._config.expl_behavior != "greedy":
+            self.start_explr = True
             mets = self._expl_behavior.train(start, context, data)[-1]
             metrics.update({"expl_" + key: value for key, value in mets.items()})
+        # elif self.start_explr:
+        #     self.start_explr = False
+        #     # TODO: clear exploration buffer and leave warmup buffer
+        #     self._wm.heads["reward"].apply(reward_model_reset)
+        #     # and clear reward head for world model
+
         for name, value in metrics.items():
             if not name in self._metrics.keys():
                 self._metrics[name] = [value]
             else:
                 self._metrics[name].append(value)
 
+def reward_model_reset(head):
+    if head.bias is not None:
+        nn.init.constant_(head.bias.data, 0.0)
+    if head.weight is not None:
+        nn.init.xavier_uniform(head.weight.data)
 
 def count_steps(folder):
     return sum(int(str(n).split("-")[-1][:-4]) - 1 for n in folder.glob("*.npz"))
@@ -375,7 +388,7 @@ if __name__ == "__main__":
     parser.add_argument("--configs", nargs="+")
     args, remaining = parser.parse_known_args()
     configs = yaml.safe_load(
-        (pathlib.Path(sys.argv[0]).parent / "configs.yaml").read_text()
+        (pathlib.Path(sys.argv[0]).parent / "explr_config.yaml").read_text()
     )
 
     def recursive_update(base, update):
