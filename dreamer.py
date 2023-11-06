@@ -3,6 +3,7 @@ import functools
 import os
 import pathlib
 import sys
+import wandb
 
 os.environ["MUJOCO_GL"] = "egl"
 
@@ -271,6 +272,15 @@ def main(config):
     config.traindir.mkdir(parents=True, exist_ok=True)
     config.evaldir.mkdir(parents=True, exist_ok=True)
     step = count_steps(config.traindir)
+
+    wandb.init(project="dreamerv3_urlb",
+        entity="urlb-gqn-test",
+        group="dreamerv3",
+        name="dreamerv3_walker_walk_pixel_pretest",
+        sync_tensorboard=True,
+        config=config)
+
+
     # step in logger is environmental step
     logger = tools.Logger(logdir, config.action_repeat * step)
 
