@@ -162,6 +162,7 @@ class Dreamer(nn.Module):
         reward = lambda f, s, a: self._wm.heads["reward"](
             self._wm.dynamics.get_feat(s)
         ).mode()
+        # TODO: dont train task behavior during exploration
         metrics.update(self._task_behavior._train(start, reward)[-1])
         if self._config.expl_behavior != "greedy":
             self.start_explr = True
@@ -260,6 +261,7 @@ def main(config):
     if config.deterministic_run:
         tools.enable_deterministic_run()
     logdir = pathlib.Path(config.logdir).expanduser()
+    modeldir = pathlib.Path(config.modeldir).expanduser()
     config.traindir = config.traindir or logdir / "train_eps"
     config.evaldir = config.evaldir or logdir / "eval_eps"
     config.steps //= config.action_repeat
@@ -352,8 +354,8 @@ def main(config):
         train_dataset,
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
-    if (logdir / "latest_model.pt").exists():
-        agent.load_state_dict(torch.load(logdir / "latest_model.pt"))
+    if (modeldir / "latest_model.pt").exists():
+        agent.load_state_dict(torch.load(modeldir / "latest_model.pt"))
         agent._should_pretrain._once = False
 
     # make sure eval will be executed once after config.steps
