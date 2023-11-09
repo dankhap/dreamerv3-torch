@@ -6,7 +6,7 @@ import sys
 import wandb
 
 os.environ["MUJOCO_GL"] = "egl"
-
+os.environ["WANDB_MODE"] = "offline"
 import numpy as np
 import ruamel.yaml as yaml
 
@@ -155,25 +155,30 @@ class Dreamer(nn.Module):
 
     def _train(self, data):
         metrics = {}
-        # TODO: remove reward head during exploration, for WM
+        if self._should_expl(self._step):
+            data["reward"] = np.zeros_like(data["reward"])
+            # TODO: try different pseudo reward training strategies
+        elif self.start_explr:
+            print("starting real task training")
+            print("initializing reward head")
+            self.start_explr = False
+            # TODO: clear exploration buffer and leave warmup buffer
+            self._wm.heads["reward"].apply(reward_model_reset)
+            # and clear reward head for world model
+
         post, context, mets = self._wm._train(data)
         metrics.update(mets)
         start = post
         reward = lambda f, s, a: self._wm.heads["reward"](
             self._wm.dynamics.get_feat(s)
         ).mode()
-        # TODO: dont train task behavior during exploration
         if not self._should_expl(self._step):
             metrics.update(self._task_behavior._train(start, reward)[-1])
+
         if self._config.expl_behavior != "greedy":
             self.start_explr = True
             mets = self._expl_behavior.train(start, context, data)[-1]
             metrics.update({"expl_" + key: value for key, value in mets.items()})
-        # elif self.start_explr:
-        #     self.start_explr = False
-        #     # TODO: clear exploration buffer and leave warmup buffer
-        #     self._wm.heads["reward"].apply(reward_model_reset)
-        #     # and clear reward head for world model
 
         for name, value in metrics.items():
             if not name in self._metrics.keys():
