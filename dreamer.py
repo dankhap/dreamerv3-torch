@@ -163,7 +163,8 @@ class Dreamer(nn.Module):
             self._wm.dynamics.get_feat(s)
         ).mode()
         # TODO: dont train task behavior during exploration
-        metrics.update(self._task_behavior._train(start, reward)[-1])
+        if not self._should_expl(self._step):
+            metrics.update(self._task_behavior._train(start, reward)[-1])
         if self._config.expl_behavior != "greedy":
             self.start_explr = True
             mets = self._expl_behavior.train(start, context, data)[-1]
