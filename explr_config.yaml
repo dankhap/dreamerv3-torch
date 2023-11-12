@@ -2,6 +2,7 @@ defaults:
 
   logdir: /code/dreamerv3-torch/logdir
   modeldir: /code/dreamerv3-torch/modeldir
+  reward_off: False
   traindir: null
   evaldir: null
   offline_traindir: ''
