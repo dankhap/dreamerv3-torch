@@ -6,7 +6,7 @@ import sys
 import wandb
 
 os.environ["MUJOCO_GL"] = "egl"
-os.environ["WANDB_MODE"] = "offline"
+# os.environ["WANDB_MODE"] = "offline"
 import numpy as np
 import ruamel.yaml as yaml
 
@@ -38,6 +38,7 @@ class Dreamer(nn.Module):
         self._should_reset = tools.Every(config.reset_every)
         self._should_expl = tools.Until(int(config.expl_until / config.action_repeat))
         self._metrics = {}
+        self.start_explr = False
         # this is update step
         self._step = logger.step // config.action_repeat
         self._update_count = 0
@@ -155,10 +156,12 @@ class Dreamer(nn.Module):
 
     def _train(self, data):
         metrics = {}
-        if self._should_expl(self._step) and self._config.reward_off:
-            data["reward"] = np.zeros_like(data["reward"])
+        if self._should_expl(self._step):
+            if self._config.reward_off:
+                data["reward"] = np.zeros_like(data["reward"])
             # TODO: try different pseudo reward training strategies
         elif self.start_explr:
+            print("after exploration")
             print("starting real task training")
             print("initializing reward head")
             self.start_explr = False
