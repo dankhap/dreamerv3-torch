@@ -167,7 +167,7 @@ class Dreamer(nn.Module):
             self.start_explr = False
             # TODO: clear exploration buffer and leave warmup buffer
             if self._config.reward_off:
-                self._wm.heads["reward"].apply(reward_model_reset)
+                self._wm.heads["reward"].apply(tools.weight_init)
             # and clear reward head for world model
 
         post, context, mets = self._wm._train(data)
