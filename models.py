@@ -115,7 +115,7 @@ class WorldModel(nn.Module):
         )
         self._scales = dict(reward=config.reward_scale, cont=config.cont_scale)
 
-    def _train(self, data):
+    def _train(self, data, skip_heads=[]):
         # action (batch_size, batch_length, act_dim)
         # image (batch_size, batch_length, h, w, ch)
         # reward (batch_size, batch_length)
@@ -136,6 +136,8 @@ class WorldModel(nn.Module):
                 )
                 preds = {}
                 for name, head in self.heads.items():
+                    if name in skip_heads:
+                        continue
                     grad_head = name in self._config.grad_heads
                     feat = self.dynamics.get_feat(post)
                     feat = feat if grad_head else feat.detach()

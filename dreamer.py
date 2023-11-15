@@ -156,9 +156,11 @@ class Dreamer(nn.Module):
 
     def _train(self, data):
         metrics = {}
+        skip_heads = []
         if self._should_expl(self._step):
             if self._config.reward_off:
                 data["reward"] = np.zeros_like(data["reward"])
+                skip_heads = ["reward"]
             # TODO: try different pseudo reward training strategies
         elif self.start_explr:
             print("after exploration")
@@ -170,7 +172,7 @@ class Dreamer(nn.Module):
                 self._wm.heads["reward"].apply(tools.weight_init)
             # and clear reward head for world model
 
-        post, context, mets = self._wm._train(data)
+        post, context, mets = self._wm._train(data, skip_heads)
         metrics.update(mets)
         start = post
         reward = lambda f, s, a: self._wm.heads["reward"](
