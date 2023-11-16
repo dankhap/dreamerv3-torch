@@ -38,7 +38,7 @@ class Dreamer(nn.Module):
         self._should_reset = tools.Every(config.reset_every)
         self._should_expl = tools.Until(int(config.expl_until / config.action_repeat))
         self._metrics = {}
-        self.start_explr = False
+        self.start_explr = True
         # this is update step
         self._step = logger.step // config.action_repeat
         self._update_count = 0
@@ -157,7 +157,8 @@ class Dreamer(nn.Module):
     def _train(self, data):
         metrics = {}
         skip_heads = []
-        if self._should_expl(self._step):
+        should_expl = self._should_expl(self._step)
+        if should_expl:
             if self._config.reward_off:
                 data["reward"] = np.zeros_like(data["reward"])
                 skip_heads = ["reward"]
@@ -178,11 +179,10 @@ class Dreamer(nn.Module):
         reward = lambda f, s, a: self._wm.heads["reward"](
             self._wm.dynamics.get_feat(s)
         ).mode()
-        if not self._should_expl(self._step):
+        if not should_expl:
             metrics.update(self._task_behavior._train(start, reward)[-1])
 
-        if self._config.expl_behavior != "greedy":
-            self.start_explr = True
+        if should_expl and self._config.expl_behavior != "greedy":
             mets = self._expl_behavior.train(start, context, data)[-1]
             metrics.update({"expl_" + key: value for key, value in mets.items()})
 
