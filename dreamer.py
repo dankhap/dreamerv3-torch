@@ -6,7 +6,7 @@ import sys
 import wandb
 
 os.environ["MUJOCO_GL"] = "egl"
-# os.environ["WANDB_MODE"] = "offline"
+os.environ["WANDB_MODE"] = "offline"
 import numpy as np
 import ruamel.yaml as yaml
 
@@ -27,7 +27,9 @@ to_np = lambda x: x.detach().cpu().numpy()
 
 
 class Dreamer(nn.Module):
-    def __init__(self, obs_space, act_space, config, logger, dataset):
+    def __init__(self, obs_space, act_space, config, logger, dataset,
+            train_eps,
+            eval_eps):
         super(Dreamer, self).__init__()
         self._config = config
         self._logger = logger
@@ -38,7 +40,13 @@ class Dreamer(nn.Module):
         self._should_reset = tools.Every(config.reset_every)
         self._should_expl = tools.Until(int(config.expl_until / config.action_repeat))
         self._metrics = {}
+
+        # additional flags for pretain/fintuning flow
         self.start_explr = True
+        self.start_finetuning = False
+        self._train_cache = train_eps
+        self._eval_cache = eval_eps
+
         # this is update step
         self._step = logger.step // config.action_repeat
         self._update_count = 0
@@ -83,9 +91,15 @@ class Dreamer(nn.Module):
         if training:
             steps = (
                 self._config.pretrain
-                if self._should_pretrain()
+                if self._should_pretrain() or self.start_finetuning
                 else self._should_train(step)
             )
+            if self.start_finetuning:
+                self.start_finetuning = False
+                print("starting finetuning after pretraining")
+                print(f"doing pos-finetuning for {steps} steps")
+                # TODO: change the train ratio to be 3x and cut the buffer to hold 10k steps (10 episodes)
+
             for _ in range(steps):
                 self._train(next(self._dataset))
                 self._update_count += 1
@@ -168,9 +182,12 @@ class Dreamer(nn.Module):
             print("starting real task training")
             print("initializing reward head")
             self.start_explr = False
-            # TODO: clear exploration buffer and leave warmup buffer
             if self._config.reward_off:
                 self._wm.heads["reward"].apply(tools.weight_init)
+            # TODO: clear/change training buffer, leave warmup buffer
+            current_buffer_size = len(self._train_cache )
+            print("current_buffer_size:", current_buffer_size)
+            self.start_finetuning = True
             # and clear reward head for world model
 
         post, context, mets = self._wm._train(data, skip_heads)
@@ -201,6 +218,10 @@ def reward_model_reset(head):
 def count_steps(folder):
     return sum(int(str(n).split("-")[-1][:-4]) - 1 for n in folder.glob("*.npz"))
 
+class Dataset:
+    def __init__(self, dataset):
+        self._dataset = dataset
+        self._index = 0
 
 def make_dataset(episodes, config):
     generator = tools.sample_episodes(episodes, config.batch_length)
@@ -364,6 +385,8 @@ def main(config):
         config,
         logger,
         train_dataset,
+        train_eps,
+        eval_eps
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
     if (modeldir / "latest_model.pt").exists():
