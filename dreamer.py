@@ -6,7 +6,7 @@ import sys
 import wandb
 
 os.environ["MUJOCO_GL"] = "egl"
-os.environ["WANDB_MODE"] = "offline"
+# os.environ["WANDB_MODE"] = "offline"
 import numpy as np
 import ruamel.yaml as yaml
 
@@ -184,9 +184,14 @@ class Dreamer(nn.Module):
             self.start_explr = False
             if self._config.reward_off:
                 self._wm.heads["reward"].apply(tools.weight_init)
-            # TODO: clear/change training buffer, leave warmup buffer
-            current_buffer_size = len(self._train_cache )
+            current_buffer_size = len(self._train_cache)
             print("current_buffer_size:", current_buffer_size)
+            if self._config.trunc_buffer > 0:
+                trunc_eps = self._config.trunc_buffer // 1000
+                posttrain_cache_keys = [k for k in self._train_cache.keys()][-(trunc_eps + 4):-4]
+                new_cache = {k: self._train_cache[k] for k in posttrain_cache_keys}
+                self._train_cache = new_cache
+                # TODO: truncation of episodes cache doesnt change data loader/generator pool
             self.start_finetuning = True
             # and clear reward head for world model
 
@@ -311,7 +316,7 @@ def main(config):
     wandb.init(project="dreamerv3_urlb",
         entity="urlb-gqn-test",
         group="dreamerv3",
-        name="dreamerv3_walker_walk_pixel_pretest",
+        name=config.wandb_name,
         sync_tensorboard=True,
         config=config)
 
@@ -389,10 +394,15 @@ def main(config):
         eval_eps
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
-    if (modeldir / "latest_model.pt").exists():
+    if (modeldir / "after_pretrain_model.pt").exists():
+        agent.load_state_dict(torch.load(modeldir / "after_pretrain_model.pt"))
+        agent._should_pretrain._once = False
+        print("loading after_pretrain_model.pt")
+    elif (modeldir / "latest_model.pt").exists():
         agent.load_state_dict(torch.load(modeldir / "latest_model.pt"))
         agent._should_pretrain._once = False
 
+    after_saved = False
     # make sure eval will be executed once after config.steps
     while agent._step < config.steps + config.eval_every:
         logger.write()
@@ -423,6 +433,11 @@ def main(config):
             state=state,
         )
         torch.save(agent.state_dict(), logdir / "latest_model.pt")
+        should_expl = agent._should_expl(agent._step)
+        if not should_expl and not after_saved:
+            torch.save(agent.state_dict(), logdir / "after_pretrain_model.pt")
+            after_saved = True
+
     for env in train_envs + eval_envs:
         try:
             env.close()
