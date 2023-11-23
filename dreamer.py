@@ -6,7 +6,7 @@ import sys
 import wandb
 
 os.environ["MUJOCO_GL"] = "egl"
-os.environ["WANDB_MODE"] = "offline"
+# os.environ["WANDB_MODE"] = "offline"
 import numpy as np
 import ruamel.yaml as yaml
 
