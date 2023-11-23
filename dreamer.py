@@ -6,7 +6,7 @@ import sys
 import wandb
 
 os.environ["MUJOCO_GL"] = "egl"
-# os.environ["WANDB_MODE"] = "offline"
+os.environ["WANDB_MODE"] = "offline"
 import numpy as np
 import ruamel.yaml as yaml
 
@@ -189,9 +189,10 @@ class Dreamer(nn.Module):
             if self._config.trunc_buffer > 0:
                 trunc_eps = self._config.trunc_buffer // 1000
                 posttrain_cache_keys = [k for k in self._train_cache.keys()][-(trunc_eps + 4):-4]
-                new_cache = {k: self._train_cache[k] for k in posttrain_cache_keys}
-                self._train_cache = new_cache
-                # TODO: truncation of episodes cache doesnt change data loader/generator pool
+                other_keys = [k for k in self._train_cache.keys() if k not in posttrain_cache_keys]
+                for k in other_keys:
+                    del self._train_cache[k]
+                
             self.start_finetuning = True
             # and clear reward head for world model
 

@@ -305,6 +305,53 @@ def save_episodes(directory, episodes):
                 f2.write(f1.read())
     return True
 
+class ReplayBuffer:
+    def __init__(self, episodes, length, seed=0):
+        self.episodes = episodes
+        self.length = length
+        self.seed = seed
+
+    def __iter__(self):
+        np_random = np.random.RandomState(self.seed)
+        while True:
+            size = 0
+            ret = None
+            p = np.array(
+                [len(next(iter(episode.values()))) for episode in self.episodes.values()]
+            )
+            p = p / np.sum(p)
+            while size < self.length:
+                episode = np_random.choice(list(self.episodes.values()), p=p)
+                total = len(next(iter(episode.values())))
+                # make sure at least one transition included
+                if total < 2:
+                    continue
+                if not ret:
+                    index = int(np_random.randint(0, total - 1))
+                    ret = {
+                        k: v[index : min(index + self.length, total)]
+                        for k, v in episode.items()
+                        if "log_" not in k
+                    }
+                    if "is_first" in ret:
+                        ret["is_first"][0] = True
+                else:
+                    # 'is_first' comes after 'is_last'
+                    index = 0
+                    possible = self.length - size
+                    ret = {
+                        k: np.append(
+                            ret[k], v[index : min(index + possible, total)], axis=0
+                        )
+                        for k, v in episode.items()
+                        if "log_" not in k
+                    }
+                    if "is_first" in ret:
+                        ret["is_first"][size] = True
+                size = len(next(iter(ret.values())))
+            yield ret
+
+
 
 def from_generator(generator, batch_size):
     while True:
