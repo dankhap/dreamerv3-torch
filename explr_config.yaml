@@ -5,6 +5,7 @@ defaults:
   wandb_name: 'dreamerv3_walker_walk_pixel_pretest'
   trunc_buffer: 0
   reward_off: False
+  start_finetuning: False
   traindir: null
   evaldir: null
   offline_traindir: ''

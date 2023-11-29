@@ -42,8 +42,8 @@ class Dreamer(nn.Module):
         self._metrics = {}
 
         # additional flags for pretain/fintuning flow
-        self.start_explr = True
-        self.start_finetuning = False
+        self.start_explr = config.expl_until > 1000
+        self.start_finetuning = config.start_finetuning
         self._train_cache = train_eps
         self._eval_cache = eval_eps
 
@@ -167,6 +167,9 @@ class Dreamer(nn.Module):
             return tools.OneHotDist(probs=probs).sample()
         else:
             return torch.clip(torchd.normal.Normal(action, amount).sample(), -1, 1)
+
+    def reinit_reward_head(self):
+        self._wm.heads["reward"].apply(tools.weight_init)
 
     def _train(self, data):
         metrics = {}
@@ -395,10 +398,13 @@ def main(config):
         eval_eps
     ).to(config.device)
     agent.requires_grad_(requires_grad=False)
+    loaded_pretrained_model = False
     if (modeldir / "after_pretrain_model.pt").exists():
         agent.load_state_dict(torch.load(modeldir / "after_pretrain_model.pt"))
-        agent._should_pretrain._once = False
+        agent._should_pretrain._once = True
         print("loading after_pretrain_model.pt")
+        agent.reinit_reward_head()
+        loaded_pretrained_model = True
     elif (modeldir / "latest_model.pt").exists():
         agent.load_state_dict(torch.load(modeldir / "latest_model.pt"))
         agent._should_pretrain._once = False
@@ -435,7 +441,7 @@ def main(config):
         )
         torch.save(agent.state_dict(), logdir / "latest_model.pt")
         should_expl = agent._should_expl(agent._step)
-        if not should_expl and not after_saved:
+        if not should_expl and not after_saved and not loaded_pretrained_model:
             torch.save(agent.state_dict(), logdir / "after_pretrain_model.pt")
             after_saved = True
 
