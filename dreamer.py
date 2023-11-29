@@ -319,7 +319,7 @@ def main(config):
 
     wandb.init(project="dreamerv3_urlb",
         entity="urlb-gqn-test",
-        group="dreamerv3",
+        group=config.wandb_group,
         name=config.wandb_name,
         sync_tensorboard=True,
         config=config)
