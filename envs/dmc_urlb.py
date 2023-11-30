@@ -302,15 +302,14 @@ class ExtendedTimeStepWrapper(dm_env.Environment):
         return getattr(self._env, name)
 
 
-def _make_jaco(obs_type, domain, task, frame_stack, action_repeat, seed):
+def _make_jaco(obs_type, domain, task, seed):
     env = cdmc.make_jaco(task, obs_type, seed)
     env = ActionDTypeWrapper(env, np.float32)
-    env = ActionRepeatWrapper(env, action_repeat)
     env = FlattenJacoObservationWrapper(env)
     return env
 
 
-def _make_dmc(obs_type, domain, task, frame_stack, action_repeat, seed):
+def _make_dmc(obs_type, domain, task, seed):
     visualize_reward = False
     if (domain, task) in suite.ALL_TASKS:
         env = suite.load(domain,
@@ -325,25 +324,16 @@ def _make_dmc(obs_type, domain, task, frame_stack, action_repeat, seed):
                         environment_kwargs=dict(flat_observation=True),
                         visualize_reward=visualize_reward)
 
-    env = ActionDTypeWrapper(env, np.float32)
-    env = ActionRepeatWrapper(env, action_repeat)
-    if obs_type == 'pixels':
-        # zoom in camera for quadruped
-        camera_id = dict(quadruped=2).get(domain, 0)
-        render_kwargs = dict(height=84, width=84, camera_id=camera_id)
-        env = pixels.Wrapper(env,
-                             pixels_only=True,
-                             render_kwargs=render_kwargs)
     return env
 
 
-def make(name, obs_type, frame_stack, action_repeat, seed, resize=None):
+def make(name, obs_type, frame_stack, seed, resize=None):
     assert obs_type in ['states', 'pixels']
     domain, task = name.split('_', 1)
     domain = dict(cup='ball_in_cup').get(domain, domain)
 
     make_fn = _make_jaco if domain == 'jaco' else _make_dmc
-    env = make_fn(obs_type, domain, task, frame_stack, action_repeat, seed)
+    env = make_fn(obs_type, domain, task, seed)
 
     if obs_type == 'pixels':
         if resize is not None:

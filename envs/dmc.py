@@ -1,5 +1,6 @@
 import gymnasium as gym
 import numpy as np
+import envs.dmc_urlb as dmcu
 
 
 class DeepMindControl:
@@ -12,11 +13,11 @@ class DeepMindControl:
         if isinstance(domain, str):
             from dm_control import suite
 
-            self._env = suite.load(
-                domain,
-                task,
-                task_kwargs={"random": seed},
-            )
+            make_fn = dmcu._make_jaco if domain == 'jaco' else dmcu._make_dmc
+            obs_type = "pixels"
+
+            self._env = make_fn(obs_type, domain, task, seed)
+
         else:
             assert task is None
             self._env = domain()
