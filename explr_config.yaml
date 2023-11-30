@@ -1,5 +1,4 @@
 defaults:
-
   logdir: /code/dreamerv3-torch/logdir
   modeldir: /code/dreamerv3-torch/modeldir
   wandb_name: 'dreamerv3_walker_walk_pixel_pretest'
@@ -7,6 +6,7 @@ defaults:
   trunc_buffer: 0
   reward_off: False
   start_finetuning: False
+  save_after_pretrain: True
   traindir: null
   evaldir: null
   offline_traindir: ''

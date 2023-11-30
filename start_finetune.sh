@@ -31,6 +31,6 @@ echo "date: ${sdate}"
 
 
 
-sbatch --export=ALL,A="fine --configs ${dmc_config} --task dmc_${domain}_${task} --wandb_group dreamerv3_${domain}_${task} --wandb_name ${domain}_${task}_pixel_finetune_${ratio} --modeldir /code/dreamerv3-torch/logdir/dmc_walker_walk/23111624/ --logdir /code/dreamerv3-torch/logdir/dmc_walker_run/${sdate}/ --reward_off False --trunc_buffer 0 --expl_until 10 --train_ratio ${ratio} --start_finetuning True --steps 1e5 " ./dreamer_job_git.sh
+sbatch --export=ALL,A="fine --configs ${dmc_config} --task dmc_${domain}_${task} --wandb_group dreamerv3_${domain}_${task} --wandb_name ${domain}_${task}_pixel_finetune_${ratio} --modeldir /code/dreamerv3-torch/logdir/dmc_walker_walk/23111624/ --logdir /code/dreamerv3-torch/logdir/dmc_${domain}_${task}/${sdate}/ --reward_off False --trunc_buffer 0 --expl_until 10 --train_ratio ${ratio} --start_finetuning True --steps 1e5 " ./dreamer_job_git.sh
 
 

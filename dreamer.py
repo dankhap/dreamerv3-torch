@@ -44,6 +44,7 @@ class Dreamer(nn.Module):
         # additional flags for pretain/fintuning flow
         self.start_explr = config.expl_until > 1000
         self.start_finetuning = config.start_finetuning
+        self._save_after_pretrain = config.save_after_pretrain
         self._train_cache = train_eps
         self._eval_cache = eval_eps
 
@@ -187,6 +188,9 @@ class Dreamer(nn.Module):
             self.start_explr = False
             if self._config.reward_off:
                 self._wm.heads["reward"].apply(tools.weight_init)
+            if self._save_after_pretrain:
+                modeldir = pathlib.Path(self._config.modeldir).expanduser()
+                torch.save(self.state_dict(), modeldir / "after_pretrain_model.pt")
             current_buffer_size = len(self._train_cache)
             print("current_buffer_size:", current_buffer_size)
             if self._config.trunc_buffer > 0:
@@ -440,10 +444,12 @@ def main(config):
             state=state,
         )
         torch.save(agent.state_dict(), logdir / "latest_model.pt")
-        should_expl = agent._should_expl(agent._step)
-        if not should_expl and not after_saved and not loaded_pretrained_model:
-            torch.save(agent.state_dict(), logdir / "after_pretrain_model.pt")
-            after_saved = True
+        # Model is saved inside train function to have imidiate affect
+        # should_expl = agent._should_expl(agent._step)
+        # if not should_expl and not after_saved and not loaded_pretrained_model:
+        #     print("Saving after_pretrain_model.pt")
+        #     torch.save(agent.state_dict(), logdir / "after_pretrain_model.pt")
+        #     after_saved = True
 
     for env in train_envs + eval_envs:
         try:
