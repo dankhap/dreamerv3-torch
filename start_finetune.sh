@@ -15,7 +15,7 @@ fi
 if [ "$domain" == "walker" ]; then
 	model_path="/code/dreamerv3-torch/logdir/dmc_walker_walk/23111624/"
 elif [ "$domain" == "quadruped" ]; then
-	model_path="/code/dreamerv3-torch/logdir/dmc_quadruped_walk/23111624/"
+	model_path="/code/dreamerv3-torch/logdir/dmc_quadruped_stand/30111423/"
 fi
 
 sdate=$(date '+%Y%m%d_%H%M%S')
@@ -31,6 +31,6 @@ echo "date: ${sdate}"
 
 
 
-sbatch --export=ALL,A="fine --configs ${dmc_config} --task dmc_${domain}_${task} --wandb_group dreamerv3_${domain}_${task} --wandb_name ${domain}_${task}_pixel_finetune_${ratio} --modeldir /code/dreamerv3-torch/logdir/dmc_walker_walk/23111624/ --logdir /code/dreamerv3-torch/logdir/dmc_${domain}_${task}/${sdate}/ --reward_off False --trunc_buffer 0 --expl_until 10 --train_ratio ${ratio} --start_finetuning True --steps 1e5 " ./dreamer_job_git.sh
+sbatch --export=ALL,A="fine --configs ${dmc_config} --task dmc_${domain}_${task} --wandb_group dreamerv3_${domain}_${task} --wandb_name ${domain}_${task}_pixel_finetune_${ratio} --modeldir ${model_path} --logdir /code/dreamerv3-torch/logdir/dmc_${domain}_${task}/${sdate}/ --reward_off False --trunc_buffer 0 --expl_until 10 --train_ratio ${ratio} --start_finetuning True --steps 1e5 " ./dreamer_job_git.sh
 
 
