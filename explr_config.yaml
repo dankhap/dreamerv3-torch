@@ -22,10 +22,10 @@ defaults:
   precision: 32
   debug: False
   expl_gifs: False
-  video_pred_log: True
+  video_pred_log: false
 
   # Environment
-  task: 'dmc_walker_walk'
+  task: 'jsbsim_JSBSim-v0'
   size: [64, 64]
   envs: 1
   action_repeat: 2
@@ -125,6 +125,16 @@ defaults:
   disag_layers: 4
   disag_units: 400
   disag_action_cond: False
+
+jsbsim_proprio:
+  env_root: '/home/daniel/Code/jsbsim_gym/jsbsim_gym/'
+  steps: 3e6
+  action_repeat: 1
+  envs: 4
+  train_ratio: 512
+  video_pred_log: false
+  encoder: {mlp_keys: '.*', cnn_keys: '$^'}
+  decoder: {mlp_keys: '.*', cnn_keys: '$^'}
 
 dmc_proprio:
   steps: 5e5

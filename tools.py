@@ -233,7 +233,8 @@ def simulate(
 
                     score = sum(eval_scores) / len(eval_scores)
                     length = sum(eval_lengths) / len(eval_lengths)
-                    logger.video(f"eval_policy", np.array(video)[None])
+                    if video[0] is not None:
+                        logger.video(f"eval_policy", np.array(video)[None])
 
                     if len(eval_scores) >= episodes and not eval_done:
                         logger.scalar(f"eval_return", score)
@@ -288,7 +289,8 @@ def convert(value, precision=32):
     elif np.issubdtype(value.dtype, bool):
         dtype = bool
     else:
-        raise NotImplementedError(value.dtype)
+        return None
+        # raise NotImplementedError(value.dtype)
     return value.astype(dtype)
 
 

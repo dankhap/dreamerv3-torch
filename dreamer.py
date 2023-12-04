@@ -244,6 +244,18 @@ def make_env(config, mode):
             task, config.action_repeat, config.size, seed=config.seed
         )
         env = wrappers.NormalizeActions(env)
+    elif suite == "jsbsim":
+        import envs.jsbsim as jsbsim
+
+        env = jsbsim.JsbsimEnv(
+            task,
+            config.action_repeat,
+            config.size,
+            seed=config.seed,
+            root=config.env_root
+        )
+        env = wrappers.NormalizeActions(env)
+        
     elif suite == "atari":
         import envs.atari as atari
 
@@ -314,12 +326,12 @@ def main(config):
     config.evaldir.mkdir(parents=True, exist_ok=True)
     step = count_steps(config.traindir)
 
-    wandb.init(project="dreamerv3_urlb",
-        entity="urlb-gqn-test",
-        group="dreamerv3",
-        name=config.wandb_name,
-        sync_tensorboard=True,
-        config=config)
+    # wandb.init(project="dreamerv3_urlb",
+    #     entity="urlb-gqn-test",
+    #     group="dreamerv3",
+    #     name=config.wandb_name,
+    #     sync_tensorboard=True,
+    #     config=config)
 
 
     # step in logger is environmental step
@@ -450,9 +462,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--configs", nargs="+")
     args, remaining = parser.parse_known_args()
-    configs = yaml.safe_load(
-        (pathlib.Path(sys.argv[0]).parent / "explr_config.yaml").read_text()
-    )
+    yamli = yaml.YAML(typ="safe", pure=True)
+    configs = yamli.load(
+        (pathlib.Path(sys.argv[0]).parent / "configs.yaml").read_text())
 
     def recursive_update(base, update):
         for key, value in update.items():
