@@ -16,6 +16,8 @@ if [ "$domain" == "walker" ]; then
 	model_path="/code/dreamerv3-torch/logdir/dmc_walker_walk/23111624/"
 elif [ "$domain" == "quadruped" ]; then
 	model_path="/code/dreamerv3-torch/logdir/dmc_quadruped_stand/30111423/"
+elif [ "$domain" == "jaco" ]; then
+	model_path="/code/dreamerv3-torch/logdir/dmc_jaco_pretrain/30111648/"
 fi
 
 sdate=$(date '+%Y%m%d_%H%M%S')
