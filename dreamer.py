@@ -188,9 +188,10 @@ class Dreamer(nn.Module):
             self.start_explr = False
             if self._config.reward_off:
                 self._wm.heads["reward"].apply(tools.weight_init)
-            # if self._save_after_pretrain:
-            #     modeldir = pathlib.Path(self._config.modeldir).expanduser()
-            #     torch.save(self.state_dict(), modeldir / "after_pretrain_model.pt")
+            if self._save_after_pretrain:
+                print("saving model after pretraining")
+                modeldir = pathlib.Path(self._config.modeldir).expanduser()
+                torch.save(self.state_dict(), modeldir / "after_pretrain_model.pt")
             current_buffer_size = len(self._train_cache)
             print("current_buffer_size:", current_buffer_size)
             if self._config.trunc_buffer > 0:
@@ -445,11 +446,11 @@ def main(config):
         )
         torch.save(agent.state_dict(), logdir / "latest_model.pt")
         # Model is saved inside train function to have imidiate affect
-        should_expl = agent._should_expl(agent._step)
-        if not should_expl and not after_saved and not loaded_pretrained_model:
-            print("Saving after_pretrain_model.pt")
-            torch.save(agent.state_dict(), logdir / "after_pretrain_model.pt")
-            after_saved = True
+        # should_expl = agent._should_expl(agent._step)
+        # if not should_expl and not after_saved and not loaded_pretrained_model:
+        #     print("Saving after_pretrain_model.pt")
+        #     torch.save(agent.state_dict(), logdir / "after_pretrain_model.pt")
+        #     after_saved = True
 
     for env in train_envs + eval_envs:
         try:
